@@ -43,8 +43,13 @@ const DROP_LOCK_DELAY = 500
 var game_started: bool = false
 var game_ended: bool = false
 
-# Can reset lock delay up to 15 time by moving the piece
+# Lock resets, as in TETR.IO: each move or rotation resets the lock delay and uses one reset. They
+# refill only when the piece falls lower than it has been. With all 15 used, the piece locks as
+# soon as it is on the ground (MainGame._process).
+const LOCK_RESETS = 15
 var drop_lock_reset_count: int = 0
+# The lowest row the piece's top left corner has reached
+var lowest_row: int = 0
 
 # Number of lines cleared in a row
 var combo: int = 0
@@ -159,6 +164,11 @@ func spawn_new_piece(piece: Piece) -> bool:
 
 	current_piece_coordinates.clear()
 	current_piece_top_left_corner = Vector2(3, 1)
+
+	# A new piece gets its own lock delay and resets, not what is left of the last piece's
+	drop_lock_time_begin = -1
+	drop_lock_reset_count = 0
+	lowest_row = int(current_piece_top_left_corner.y)
 
 	# Check if player is dead
 	for i in range(0, current_piece.tiles[0].size()):
@@ -418,14 +428,18 @@ func move_piece(move_direction: MoveDirections):
 		board[point.x][point.y].type = current_piece.tile_type
 		board[point.x][point.y].state = Tile.State.FALLING
 
-	drop_lock_reset_count += 1
+	if move_direction == MoveDirections.DOWN:
+		if current_piece_top_left_corner.y > lowest_row:
+			lowest_row = int(current_piece_top_left_corner.y)
+			drop_lock_reset_count = 0
+	else:
+		use_lock_reset()
 
-	if (drop_lock_reset_count < 15):
+# A move or rotation resets the lock delay while resets are left
+func use_lock_reset():
+	drop_lock_reset_count = min(drop_lock_reset_count + 1, 31)
+	if drop_lock_reset_count < LOCK_RESETS:
 		drop_lock_time_begin = -1
-
-	if (!try_to_move_piece(MoveDirections.DOWN).is_empty()):
-		# If it can move down, reset the lock delay
-		drop_lock_reset_count = 0
 
 # 1 for clockwise, 2 for 180, 3 for counterclockwise
 func calculate_rotation(rotations: Piece.RotationAmount):
@@ -524,9 +538,4 @@ func rotate_piece(rotations: Piece.RotationAmount):
 		board[point.x][point.y].type = current_piece.tile_type
 		board[point.x][point.y].state = Tile.State.FALLING
 
-	drop_lock_reset_count += 1
-
-	if (drop_lock_reset_count < 15):
-		drop_lock_time_begin = -1
-	elif (drop_lock_reset_count >= 15 && kick.y != 0):
-		hard_drop()
+	use_lock_reset()

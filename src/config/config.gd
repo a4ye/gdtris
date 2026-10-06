@@ -7,12 +7,13 @@ static func create():
 	config.load("user://config.cfg")
 
 	# Set default values if they don't exist
+	# Handling defaults as in TETR.IO: DAS 10 frames, ARR 2 frames (at 60 fps), SDF 6x
 	if not config.has_section_key("handling", "das"):
-		config.set_value("handling", "das", 150)
+		config.set_value("handling", "das", 167)
 	if not config.has_section_key("handling", "arr"):
-		config.set_value("handling", "arr", 50)
+		config.set_value("handling", "arr", 33)
 	if not config.has_section_key("handling", "sdf"):
-		config.set_value("handling", "sdf", 5)
+		config.set_value("handling", "sdf", 6)
 	if not config.has_section_key("controls", "left"):
 		config.set_value("controls", "left", Key.KEY_LEFT)
 	if not config.has_section_key("controls", "right"):
