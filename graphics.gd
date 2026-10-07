@@ -40,7 +40,18 @@ func _ready():
 	size_curve_texture = CurveTexture.new()
 	size_curve_texture.set_curve(size_curve)
 
+	var names = SFX_NAMES.duplicate()
+	for i in range(1, COMBO_SOUNDS + 1):
+		names.append("combo_%d" % i)
+	for sound in names:
+		var path = "res://assets/sfx/%s.ogg" % sound
+		if not ResourceLoader.exists(path):
+			path = "res://assets/sfx/%s.wav" % sound
+		sfx[sound] = load(path)
+
 	game = Game.new()
+	# Deferred: the scene is still being built here, and a sound added now would not play
+	play_sound.call_deferred("start")
 	if FX_PRESET != "":
 		fx = load("res://mods/fx.gd").new()
 		add_child(fx)
@@ -57,27 +68,14 @@ var next_shift_time = -1.0
 var last_sdf_time = -1
 static var last_gravity_time = -1
 
-var hard_drop_sound = load("res://assets/hard_drop.wav")
-var perfect_clear_sound = load("res://assets/perfect_clear.wav")
-var line_clear_sound = load("res://assets/line_clear.wav")
-var combo_max_sound = load("res://assets/combo_max.wav")
-var combo_sounds = [
-	load("res://assets/combo_1.wav"),
-	load("res://assets/combo_2.wav"),
-	load("res://assets/combo_3.wav"),
-	load("res://assets/combo_4.wav"),
-	load("res://assets/combo_5.wav"),
-	load("res://assets/combo_6.wav"),
-	load("res://assets/combo_7.wav"),
-	load("res://assets/combo_8.wav"),
-	load("res://assets/combo_9.wav"),
-	load("res://assets/combo_10.wav"),
-	load("res://assets/combo_11.wav"),
-	load("res://assets/combo_12.wav"),
-	load("res://assets/combo_13.wav"),
-	# There is no combo_14.wav: combo_15.wav is the next note of the scale after combo_13
-	load("res://assets/combo_15.wav"),
-]
+# Sound effects, made by tools/make_sfx.py. Their levels are set in the files, so all play at 0 dB.
+# The short input sounds are WAV (no decode delay), the rest Ogg Vorbis.
+const SFX_NAMES = ["move", "rotate", "spin", "softdrop", "hold", "harddrop", "lock", "clear_1", "clear_2",
+	"clear_3", "clear_quad", "clear_spin", "btb", "btb_break", "combo_break", "allclear", "topout", "start"]
+const COMBO_SOUNDS = 16
+var sfx = {}
+var last_played = {}
+var sound_rng = RandomNumberGenerator.new()
 
 # TODO: Implement input remapping
 func _input(event):
@@ -89,64 +87,95 @@ func _input(event):
 			get_tree().change_scene_to_file("res://settings.tscn")
 
 		if event.keycode == GameConfig.get_setting("controls", "hard_drop")&&just_pressed:
-			play_sound(hard_drop_sound, 0)
-			lock_piece()
+			lock_piece(true)
 
 		elif event.keycode == GameConfig.get_setting("controls", "left")&&just_pressed:
-			game.move_piece(Game.MoveDirections.LEFT)
+			if game.move_piece(Game.MoveDirections.LEFT):
+				play_sound("move", 0.04, 0.02)
 			start_shift(-1)
 
 		elif event.keycode == GameConfig.get_setting("controls", "right")&&just_pressed:
-			game.move_piece(Game.MoveDirections.RIGHT)
+			if game.move_piece(Game.MoveDirections.RIGHT):
+				play_sound("move", 0.04, 0.02)
 			start_shift(1)
 
 		elif event.keycode == GameConfig.get_setting("controls", "soft_drop")&&just_pressed:
+			var moved = false
 			if (GameConfig.get_setting("handling", "sdf") == 0):
 				for i in range(0, 20):
-					game.move_piece(Game.MoveDirections.DOWN)
-			game.move_piece(Game.MoveDirections.DOWN)
-			
+					moved = game.move_piece(Game.MoveDirections.DOWN) or moved
+			moved = game.move_piece(Game.MoveDirections.DOWN) or moved
+			if moved:
+				play_sound("softdrop", 0.03, 0.04)
+
 		elif event.keycode == GameConfig.get_setting("controls", "rotate_cw")&&just_pressed:
-			game.rotate_piece(Piece.RotationAmount.NINETY_DEGREES)
-			
+			play_rotate_sound(game.rotate_piece(Piece.RotationAmount.NINETY_DEGREES))
+
 		elif event.keycode == GameConfig.get_setting("controls", "rotate_ccw")&&just_pressed:
-			game.rotate_piece(Piece.RotationAmount.TWO_HUNDRED_SEVENTY_DEGREES)
-			
+			play_rotate_sound(game.rotate_piece(Piece.RotationAmount.TWO_HUNDRED_SEVENTY_DEGREES))
+
 		elif event.keycode == GameConfig.get_setting("controls", "rotate_180")&&just_pressed:
-			game.rotate_piece(Piece.RotationAmount.ONE_HUNDRED_EIGHTY_DEGREES)
-			
+			play_rotate_sound(game.rotate_piece(Piece.RotationAmount.ONE_HUNDRED_EIGHTY_DEGREES))
+
 		elif event.keycode == GameConfig.get_setting("controls", "hold")&&just_pressed:
-			game.hold()
+			if game.hold():
+				play_sound("hold")
 		elif event.keycode == GameConfig.get_setting("controls", "restart")&&just_pressed:
 			game.restart()
 			time_elapsed = 0
 			last_gravity_time = -1
+			play_sound("start")
 
 	if fx and event is InputEventKey and event.is_pressed() and not event.is_echo():
 		fx.after_input(event.keycode)
 
-func play_sound(stream: AudioStream, volume_db: float = 5):
+# jitter varies the pitch a little, so a sound heard many times in a row does not sound mechanical.
+# min_gap (seconds) keeps a sound that can fire every frame, like moves and soft drop, from piling up.
+func play_sound(sound: String, jitter: float = 0.0, min_gap: float = 0.0):
+	var now = Time.get_ticks_msec() / 1000.0
+	if min_gap > 0 and now - last_played.get(sound, -1.0) < min_gap:
+		return
+	last_played[sound] = now
 	var player = AudioStreamPlayer.new()
-	player.stream = stream
-	player.volume_db = volume_db
+	player.stream = sfx[sound]
+	if jitter > 0:
+		player.pitch_scale = 1.0 + sound_rng.randf_range(-jitter, jitter)
 	add_sibling(player)
 	player.play()
 	player.finished.connect(player.queue_free)
 
+# A T turned into a spot where three corners are filled gets the spin sound, as in TETR.IO
+func play_rotate_sound(rotated: bool):
+	if rotated:
+		play_sound("spin" if game.is_t_spin_position() else "rotate", 0.03)
+
 # Locks the piece where its ghost is. A hard drop, the lock delay running out and the lock forced
 # after too many lock resets all come through here, so all three get the same sounds and effects.
-func lock_piece():
+func lock_piece(hard: bool = false):
 	var fx_pre = fx.before_hard_drop() if fx else {}
 	var clear_info = game.hard_drop()
 	if fx:
 		fx.after_hard_drop(fx_pre, clear_info)
-	if (!clear_info["lines_cleared"].is_empty()):
-		play_sound(line_clear_sound)
-		if game.combo > 14:
-			play_sound(combo_max_sound)
+	play_sound("harddrop" if hard else "lock", 0.04)
+	var lines = clear_info["lines_cleared"].size()
+	if lines > 0:
+		if lines == 4:
+			play_sound("clear_quad")
+		elif clear_info["tspin"]:
+			play_sound("clear_spin")
 		else:
-			play_sound(combo_sounds[game.combo - 1])
+			play_sound("clear_%d" % lines)
+		if clear_info["b2b"] >= 1:
+			play_sound("btb")
+		elif clear_info["b2b_broken"]:
+			play_sound("btb_break")
+		# Like TETR.IO, the combo sound starts at the second clear in a row
+		if game.combo >= 2:
+			play_sound("combo_%d" % min(game.combo - 1, COMBO_SOUNDS))
+	elif clear_info["combo_broken"]:
+		play_sound("combo_break")
 
+	if lines > 0:
 		for i in range(0, clear_info["lines_cleared"].size() if fx == null else 0):
 			var particle = GPUParticles2D.new()
 			var process_material = ParticleProcessMaterial.new()
@@ -174,7 +203,7 @@ func lock_piece():
 			particle.emitting = true
 
 	if clear_info["is_perfect_clear"]:
-		play_sound(perfect_clear_sound)
+		play_sound("allclear")
 
 		var perfect_clear_label = Label.new()
 		perfect_clear_label.text = "PERFECT CLEAR"
@@ -216,6 +245,10 @@ func _process(delta):
 	time_elapsed += delta
 	game.gravity_fall_delay = 1000 / (0.05 * game.number_of_lines_cleared + 1 + time_elapsed / 60)
 
+	if game.topped_out:
+		game.topped_out = false
+		play_sound("topout")
+
 	# If piece can't moving down start lock timer
 	if (game.try_to_move_piece(Game.MoveDirections.DOWN).is_empty()):
 		if game.drop_lock_reset_count >= Game.LOCK_RESETS:
@@ -242,10 +275,13 @@ func _process(delta):
 			var rows_per_second = GameConfig.get_setting("handling", "sdf") * max(1000.0 / game.gravity_fall_delay, 3.0)
 			var interval = 1.0 / rows_per_second
 			var steps = 0
+			var moved = false
 			while time_elapsed - last_sdf_time > interval and steps < 24:
-				game.move_piece(Game.MoveDirections.DOWN)
+				moved = game.move_piece(Game.MoveDirections.DOWN) or moved
 				last_sdf_time += interval
 				steps += 1
+			if moved:
+				play_sound("softdrop", 0.03, 0.04)
 	else:
 		last_sdf_time = -1
 
@@ -400,16 +436,19 @@ func handle_shift():
 
 	var move = Game.MoveDirections.LEFT if shift_direction == -1 else Game.MoveDirections.RIGHT
 	var arr = GameConfig.get_setting("handling", "arr") / 1000.0
+	var moved = false
 	if arr == 0:
 		# ARR 0 goes straight to the wall
 		for i in range(0, 10):
-			game.move_piece(move)
-		return
-	# Several shifts in one frame when ARR is shorter than a frame
-	var shifts = 0
-	while time_elapsed >= next_shift_time and shifts < 10:
-		game.move_piece(move)
-		next_shift_time += arr
-		shifts += 1
-	if shifts == 10:
-		next_shift_time = time_elapsed + arr
+			moved = game.move_piece(move) or moved
+	else:
+		# Several shifts in one frame when ARR is shorter than a frame
+		var shifts = 0
+		while time_elapsed >= next_shift_time and shifts < 10:
+			moved = game.move_piece(move) or moved
+			next_shift_time += arr
+			shifts += 1
+		if shifts == 10:
+			next_shift_time = time_elapsed + arr
+	if moved:
+		play_sound("move", 0.04, 0.02)

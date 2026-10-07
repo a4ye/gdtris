@@ -54,6 +54,16 @@ var lowest_row: int = 0
 # Number of lines cleared in a row
 var combo: int = 0
 
+# Back-to-back: quads and T-spin clears in a row, with no other clear between. -1 is none, 0 the
+# first, 1 is "B2B x1" (as TETR.IO counts)
+var b2b: int = -1
+
+# A T-spin needs the last thing the piece did to be a rotation; a move or a fall cancels it
+var last_move_rotation: bool = false
+
+# Set when the stack reaches the spawn and the game restarts; MainGame plays the sound and clears it
+var topped_out: bool = false
+
 # If player is still alive
 var alive = true
 
@@ -106,6 +116,7 @@ func restart():
 	game_ended = false
 	drop_lock_reset_count = 0
 	combo = 0
+	b2b = -1
 	alive = true
 	pieces_placed = 0
 	MainGame.last_gravity_time = -1
@@ -129,9 +140,9 @@ func get_piece_from_bag():
 
 	return piece
 
-func hold():
+func hold() -> bool:
 	if already_held:
-		return
+		return false
 
 	# Clear the current piece
 	for point in current_piece_coordinates:
@@ -154,6 +165,7 @@ func hold():
 		current_piece = Piece.new(hold_piece.piece_type)
 		hold_piece = Piece.new(temp.piece_type)
 		spawn_new_piece(current_piece)
+	return true
 
 func spawn_new_piece_from_bag():
 	piece_queue.push_back(get_piece_from_bag())
@@ -169,6 +181,7 @@ func spawn_new_piece(piece: Piece) -> bool:
 	drop_lock_time_begin = -1
 	drop_lock_reset_count = 0
 	lowest_row = int(current_piece_top_left_corner.y)
+	last_move_rotation = false
 
 	# Check if player is dead
 	for i in range(0, current_piece.tiles[0].size()):
@@ -177,6 +190,7 @@ func spawn_new_piece(piece: Piece) -> bool:
 				if board[i + 3][j + 1].state != Tile.State.EMPTY:
 					restart()
 					MainGame.time_elapsed = 0
+					topped_out = true
 					return false
 
 	# Merge the piece into the array
@@ -282,6 +296,10 @@ func place_piece() -> Dictionary:
 	already_held = false
 	pieces_placed += 1
 
+	# Checked before the piece becomes part of the stack (its own cells are never the corners)
+	var tspin = last_move_rotation and is_t_spin_position()
+	var combo_before = combo
+
 	for point in current_piece_coordinates:
 		board[point.x][point.y].state = Tile.State.PLACED
 		highest_piece_row = min(highest_piece_row, point.y)
@@ -293,6 +311,16 @@ func place_piece() -> Dictionary:
 		combo += 1
 	else:
 		combo = 0
+
+	var b2b_broken = false
+	if rows.size() > 0:
+		if tspin or rows.size() == 4:
+			b2b += 1
+		else:
+			b2b_broken = b2b >= 1
+			b2b = -1
+	# Read before the spawn below, which restarts the game on a top out
+	var b2b_now = b2b
 
 	# Move the rows down
 	number_of_lines_cleared += rows.size()
@@ -319,8 +347,25 @@ func place_piece() -> Dictionary:
 
 	return {
 		"lines_cleared": rows,
-		"is_perfect_clear": is_perfect_clear
+		"is_perfect_clear": is_perfect_clear,
+		"tspin": tspin and rows.size() > 0,
+		"b2b": b2b_now,
+		"b2b_broken": b2b_broken,
+		"combo_broken": rows.is_empty() and combo_before >= 2,
+		"topped_out": !player_alive
 	}
+
+# Three of the four corners around a T's centre are filled (or are the walls or the floor)
+func is_t_spin_position() -> bool:
+	if current_piece.piece_type != Piece.Pieces.T_PIECE:
+		return false
+	var centre = current_piece_top_left_corner + Vector2(1, 1)
+	var corners = 0
+	for d in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
+		var p = centre + d
+		if p.x < 0 or p.x >= 10 or p.y >= 24 or (p.y >= 0 and board[p.x][p.y].state == Tile.State.PLACED):
+			corners += 1
+	return corners >= 3
 
 func clear_lines():
 	# Store all rows that might be full
@@ -363,6 +408,10 @@ func move_rows_down(bottom: int, top: int, removed_rows: Array[int]):
 	highest_piece_row += number_times_to_move_down
 
 func hard_drop():
+	# Falling any distance means the last thing the piece did was not a rotation
+	if ghost_coordinates != current_piece_coordinates:
+		last_move_rotation = false
+
 	for point in current_piece_coordinates:
 		board[point.x][point.y].state = Tile.State.EMPTY
 		board[point.x][point.y].type = Tile.TileType.EMPTY
@@ -398,10 +447,11 @@ func try_to_move_piece(direction: MoveDirections):
 
 	return new_coordinates
 
-func move_piece(move_direction: MoveDirections):
+func move_piece(move_direction: MoveDirections) -> bool:
 	var new_coordinates: Array[Vector2] = try_to_move_piece(move_direction)
 	if new_coordinates.is_empty():
-		return
+		return false
+	last_move_rotation = false
 
 	for point in current_piece_coordinates:
 		board[point.x][point.y].state = Tile.State.EMPTY
@@ -434,6 +484,7 @@ func move_piece(move_direction: MoveDirections):
 			drop_lock_reset_count = 0
 	else:
 		use_lock_reset()
+	return true
 
 # A move or rotation resets the lock delay while resets are left
 func use_lock_reset():
@@ -495,15 +546,15 @@ func calculate_rotation(rotations: Piece.RotationAmount):
 	
 	return null
 
-func rotate_piece(rotations: Piece.RotationAmount):
+func rotate_piece(rotations: Piece.RotationAmount) -> bool:
 	if rotations == 0 || current_piece.piece_type == Piece.Pieces.O_PIECE:
-		return
+		return false
 
 	var kick = calculate_rotation(rotations)
 	
 	# Null means no valid rotation
 	if kick == null:
-		return
+		return false
 
 	current_piece.rotate(rotations)
 
@@ -538,4 +589,6 @@ func rotate_piece(rotations: Piece.RotationAmount):
 		board[point.x][point.y].type = current_piece.tile_type
 		board[point.x][point.y].state = Tile.State.FALLING
 
+	last_move_rotation = true
 	use_lock_reset()
+	return true
