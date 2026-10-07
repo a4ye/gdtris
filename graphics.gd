@@ -84,7 +84,7 @@ func _input(event):
 		var just_pressed = event.is_pressed() and not event.is_echo()
 
 		if event.is_action_pressed("settings"):
-			get_tree().change_scene_to_file("res://settings.tscn")
+			get_tree().change_scene_to_file("res://home.tscn")
 
 		if event.keycode == GameConfig.get_setting("controls", "hard_drop")&&just_pressed:
 			lock_piece(true)
