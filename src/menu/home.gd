@@ -17,16 +17,10 @@ func _ready():
 	var root: Control = made[1]
 
 	var logo = preload("res://src/menu/logo.gd").new()
-	logo.position = Vector2(0, 200)
+	logo.position = Vector2(0, 270)
 	logo.size = Vector2(UI.DESIGN_SIZE.x, 180)
 	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(logo)
-
-	var tagline = UI.heading("STACK  ·  SPIN  ·  CLEAR", 24, UI.TEXT_DIM)
-	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tagline.position = Vector2(0, 420)
-	tagline.size = Vector2(UI.DESIGN_SIZE.x, 40)
-	root.add_child(tagline)
 
 	var buttons = VBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 20)
@@ -40,7 +34,7 @@ func _ready():
 		UI.play(self, "rotate")
 		get_tree().change_scene_to_file("res://settings.tscn"))
 
-	var hint = UI.label("↑ ↓  choose      ENTER  select      ESC  in a game comes back here", 20, UI.TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	var hint = UI.label("↑ ↓  choose      ENTER  select      ESC  return to main menu", 20, UI.TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	hint.position = Vector2(0, 990)
 	hint.size = Vector2(UI.DESIGN_SIZE.x, 30)
 	root.add_child(hint)
