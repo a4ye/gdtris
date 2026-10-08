@@ -1,20 +1,22 @@
 extends Control
-# "GDTRIS" built from the game's blocks, one piece colour a letter. The blocks drop into place
-# when the screen opens, letter after letter, bottom row first.
+# "GDTRIS" built from the game's blocks: each letter is one connected piece, in one piece colour.
+# The letters drop into place one after another when the screen opens.
 
-const TILES = preload("res://assets/tiles.png")
+const BlockSkin = preload("res://src/base/block_skin.gd")
 const WORD = ["G", "D", "T", "R", "I", "S"]
-# Tile kinds (Tile.TileType order): I cyan, L orange, T purple, Z red, O yellow, S green
-const KINDS = [0, 2, 5, 6, 3, 4]
+const KINDS = [Tile.TileType.I_PIECE, Tile.TileType.L_PIECE, Tile.TileType.T_PIECE,
+	Tile.TileType.Z_PIECE, Tile.TileType.O_PIECE, Tile.TileType.S_PIECE]
+# Every block touches the next one on a side, so each letter is drawn as one connected piece
+# (a block that only touches at a corner would look like a separate piece)
 const LETTERS = {
-	"G": [".###.", "#....", "#.###", "#...#", ".###."],
-	"D": ["####.", "#...#", "#...#", "#...#", "####."],
+	"G": ["#####", "#....", "#.###", "#...#", "#####"],
+	"D": ["####.", "#..##", "#...#", "#..##", "####."],
 	"T": ["#####", "..#..", "..#..", "..#..", "..#.."],
-	"R": ["####.", "#...#", "####.", "#..#.", "#...#"],
+	"R": ["#####", "#...#", "#####", "#..#.", "#..##"],
 	"I": ["###", ".#.", ".#.", ".#.", "###"],
-	"S": [".####", "#....", ".###.", "....#", "####."],
+	"S": ["#####", "#....", "#####", "....#", "#####"],
 }
-const DROP_TIME = 0.42
+const DROP_TIME = 0.45
 
 var age = 0.0
 
@@ -32,22 +34,33 @@ func word_width() -> int:
 	return cells
 
 
+static func filled(rows: Array, row: int, col: int) -> bool:
+	return row >= 0 and row < rows.size() and col >= 0 and col < len(rows[row]) and rows[row][col] == "#"
+
+
 func _draw():
 	var cell = size.y / 5.0
 	var x = (size.x - word_width() * cell) / 2.0
 	for i in len(WORD):
 		var rows = LETTERS[WORD[i]]
-		var source = Rect2(16 * KINDS[i], 0, 16, 16)
+		var t = clamp((age - 0.09 * i) / DROP_TIME, 0.0, 1.0)
+		var fall = pow(1.0 - t, 3.0) * (size.y + 3 * cell)
+		var alpha = clamp(t * 4.0, 0.0, 1.0)
+		var color = MainGame.COLORS[KINDS[i]]
 		for row in 5:
 			for col in len(rows[row]):
-				if rows[row][col] != "#":
+				if not filled(rows, row, col):
 					continue
-				var delay = 0.08 * i + 0.03 * (4 - row)
-				var t = clamp((age - delay) / DROP_TIME, 0.0, 1.0)
-				var eased = 1.0 - pow(1.0 - t, 3.0)
-				var fall = (1.0 - eased) * (size.y + 3 * cell)
+				var joins = 0
+				if filled(rows, row - 1, col):
+					joins |= Tile.UP
+				if filled(rows, row + 1, col):
+					joins |= Tile.DOWN
+				if filled(rows, row, col - 1):
+					joins |= Tile.LEFT
+				if filled(rows, row, col + 1):
+					joins |= Tile.RIGHT
 				var rect = Rect2(x + col * cell, row * cell - fall, cell, cell)
-				var alpha = clamp(t * 4.0, 0.0, 1.0)
-				draw_rect(Rect2(rect.position + Vector2(cell, cell) * 0.14, rect.size), Color(0, 0, 0, 0.4 * alpha))
-				draw_texture_rect_region(TILES, rect, source, Color(1, 1, 1, alpha))
+				draw_rect(Rect2(rect.position + Vector2(cell, cell) * 0.14, rect.size), Color(0, 0, 0, 0.35 * alpha))
+				BlockSkin.draw(self, rect, color, joins, alpha)
 		x += (len(rows[0]) + 1) * cell

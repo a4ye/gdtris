@@ -39,6 +39,10 @@ TARGETS = {
     "clear_1": -21, "clear_2": -20, "clear_3": -19, "clear_quad": -16, "clear_spin": -16,
     "btb": -21, "btb_break": -20, "combo_break": -22,
     "allclear": -14.5, "topout": -17, "start": -22,
+    "garbage_rise": -18, "block": -20, "warning": -24, "alert": -19, "garbage_alarm": -15,
+    "garbage_in_small": -20, "garbage_in_medium": -18, "garbage_in_large": -16,
+    "garbage_out_small": -20, "garbage_out_medium": -18, "garbage_out_large": -16,
+    "thunder_1": -17, "thunder_2": -15, "thunder_3": -13,
 }
 COMBOS = 16
 for i in range(1, COMBOS + 1):
@@ -350,10 +354,13 @@ def make():
                                (0, sine(glide(80, 38, 0.45, tau=0.06), 0.45) * np.exp(-times(0.45) / 0.14), 0.6),
                                (0, crack(0.03, 1200, 9000, 0.004), 0.55)).mean(axis=1), 0.14, 0.35)
 
-    # Spin: air rushing across into a glass ping; hold: a swoosh the other way
-    s["spin"] = hall(place(0.8, (0, whoosh(0.16, 700, 7500, -0.7, 0.7), 0.5),
-                           (0, pan(sine(glide(700, 1700, 0.18), 0.18) * env(0.18, 0.004, 0.08), 0), 0.35),
-                           (0.1, glass(hz("E6"), 1.0, 0.35), 0.6)), 0.3, 1.4)
+    # Spin: a snap and a breath of air, then a quick glass strum up E6-B6-E7. It rises in steps, not
+    # in a glide (a gliding tone sounds like a slide whistle), and it starts on the key press.
+    air = highpass(wide_noise(0.12), 5000) * np.exp(-times(0.12) / 0.03)[:, None]
+    s["spin"] = hall(place(0.8, (0, pan(crack(0.012, 3000, 14000, 0.0025), 0), 0.5), (0, air, 0.2),
+                           (0, glass(hz("E6"), 0.9, 0.22, 1.6), 0.45), (0.022, glass(hz("B6"), 0.9, 0.2, 1.6), 0.45),
+                           (0.044, glass(hz("E7"), 0.9, 0.18, 1.4), 0.4)), 0.22, 1.2)
+    # Hold: a swoosh across the field
     s["hold"] = hall(place(0.6, (0, whoosh(0.2, 450, 3500, 0.6, -0.6), 0.7), (0.06, glass(hz("B5"), 0.8, 0.25), 0.25)), 0.22, 1.0)
 
     # Line clears: air falling across the field, a struck synth chord, glass on top; more lines, more notes
@@ -414,6 +421,126 @@ def make():
     # New game: air rising into a glass fifth
     s["start"] = hall(place(1.6, (0, riser(0.32, 400, 8000), 0.35),
                             (0.3, note("D5", 0.8, 1.2), 0.6), (0.3, glass(hz("A5"), 1.6, 0.7), 0.5)), 0.38, 2.5)
+
+    # Survival, with the roles of TETR.IO's garbage and danger sounds. Small speakers cannot play the
+    # low part of a hit, and these sounds must be heard on them: the hits are driven hard, so their
+    # overtones carry them, and their lows are cut so that the crunch and clank above take most of
+    # the loudness. Each loses about 5 dB through a 300 Hz high pass (a laptop speaker), as the clear
+    # sounds do.
+    def hit(f0, seconds, drive, crunch_tau):
+        t = times(seconds)
+        crunch = bandpass(wide_noise(seconds), 500, 3500) * np.exp(-t / crunch_tau)[:, None]
+        thud = highpass(kick(f0, f0 * 0.45, seconds, 0.02, seconds * 0.25, drive), 200)
+        return place(seconds, (0, thud, 1.0), (0, crunch, 1.0))
+
+    def drone(names, seconds):
+        body = lowpass(sum(supersaw(hz(n), seconds, 5, 18) for n in names) / len(names), 1500)
+        return fade(scale_env(body, env(seconds, 0.02, seconds * 0.35)), 0.001, 0.05)
+
+    # Garbage rising into the board: stone grinding up (middle-band noise, broken into grains) over
+    # a hard, dull thud and a clank
+    t = times(0.45)
+    grains = 0.6 + 0.4 * np.tanh(4 * np.sin(2 * np.pi * 38 * t))
+    grind = bandpass(wide_noise(0.45), 400, 2800) * (grains * np.minimum(1, t / 0.02) * np.exp(-t / 0.12))[:, None]
+    s["garbage_rise"] = hall(place(0.7, (0, highpass(kick(200, 80, 0.4, 0.02, 0.1, 4.5), 220), 0.9), (0, grind, 1.3),
+                                   (0.01, metal(190, 0.6, 0.3), 0.35), (0, pan(crack(0.012, 1500, 9000, 0.003), 0), 0.5)), 0.16, 1.2)
+    # Blocking it: a hard, bright strike, like a shield taking a hit, with glass a fifth apart
+    s["block"] = hall(place(0.8, (0, pan(crack(0.01, 2000, 12000, 0.002), 0), 0.6), (0, metal(780, 0.5, 0.25), 0.3),
+                            (0, glass(hz("D6"), 0.8, 0.25, 2.0), 0.45), (0.006, glass(hz("A6"), 0.8, 0.2, 1.8), 0.35)), 0.22, 1.2)
+
+    # An attack coming in (it joins the queue): air falling in onto a hard, dull hit; the bigger the
+    # attack, the heavier the hit, and a large one brings a clang and a dark drone with it
+    # Each hit lands with a crack and the clang of a block of metal, so it cuts through
+    def clang(f0, size):
+        return place(0.8, (0, pan(crack(0.012, 1500, 9000, 0.003), 0), 0.6), (0, metal(f0, 0.8, size), 0.55))
+    s["garbage_in_small"] = hall(place(0.7, (0, whoosh(0.14, 5000, 900, 0.3, -0.1), 0.4),
+                                       (0.09, hit(260, 0.3, 4.0, 0.03), 0.8), (0.09, clang(520, 0.25), 0.7)), 0.18, 1.0)
+    s["garbage_in_medium"] = hall(place(1.0, (0, whoosh(0.22, 6000, 700, 0.5, -0.2), 0.45),
+                                        (0.14, hit(220, 0.45, 4.5, 0.05), 1.0), (0.14, clang(410, 0.35), 0.8)), 0.22, 1.4)
+    s["garbage_in_large"] = hall(place(1.6, (0, whoosh(0.3, 7000, 500, 0.6, -0.3), 0.5),
+                                       (0.2, hit(190, 0.7, 5.0, 0.08), 1.0), (0.2, highpass(impact(1.0, 1.6, 220), 200), 0.6),
+                                       (0.2, clang(330, 0.5), 0.8), (0.2, drone(["A2", "E3", "A3"], 1.2), 0.5)), 0.28, 2.0)
+
+    # A big attack coming (10 lines or more waiting): an alarm horn, two harsh blasts a tritone wide,
+    # on a hit
+    def blast(names, seconds=0.2):
+        t = times(seconds)
+        body = bandpass(sum(saw(hz(n), seconds) for n in names) / len(names), 250, 3500)
+        shape = np.minimum(1, t / 0.008) * np.where(t < seconds * 0.7, 1.0, np.exp(-(t - seconds * 0.7) / 0.03))
+        return fade(np.tanh(2.5 * body / (np.max(np.abs(body)) + 1e-9)) * shape, 0.001, 0.01)
+    horn = ["E4", "A#4", "E5"]
+    s["garbage_alarm"] = hall(place(1.0, (0, blast(horn), 0.8), (0.27, blast(horn), 0.8),
+                                    (0, highpass(impact(1.0, 1.2, 300), 150), 0.5), (0, clang(330, 0.4), 0.5)), 0.2, 1.4)
+
+    # The stack is near the top (a warning): two soft struck notes falling a semitone, each on a
+    # muted knock
+    knock = kick(170, 80, 0.15, 0.02, 0.04, 3.0)
+    s["warning"] = hall(place(1.0, (0, note("E4", 0.55, 0.8), 0.7), (0.22, note("D#4", 0.5, 0.9), 0.7),
+                              (0, knock, 0.3), (0.22, knock, 0.3)), 0.22, 1.5)
+
+    # About to die (the X's): a sharp alarm, three fast beeps high-low-high, on a hard hit
+    def beep(name, seconds=0.075):
+        f = hz(name)
+        t = times(seconds)
+        tone = lowpass(saw(f, seconds), 4000) * 0.6 + sine(2 * f, seconds) * 0.25
+        return fade(tone * np.minimum(1, t / 0.003) * np.exp(-t / 0.08), 0.001, 0.01)
+    s["alert"] = hall(place(0.6, (0, beep("E6"), 0.8), (0.1, beep("B5"), 0.8), (0.2, beep("E6"), 0.8),
+                            (0, kick(220, 90, 0.25, 0.015, 0.06, 4.0), 0.5)), 0.15, 0.9)
+
+    # An attack going out, like a shot: a crack, a bright metallic zing (FM at one pitch, its
+    # brightness falling fast; no slide), a driven punch and air rushing away. A medium one adds a
+    # glass fifth, a large one a hit and a short glass shimmer. The game plays it 60 ms after the
+    # clear sound, so the two are heard apart.
+    def zing(f, seconds=0.35, index=6.0):
+        t = times(seconds)
+        ph = 2 * np.pi * f * t
+        tone = np.sin(ph + index * np.exp(-t / 0.04) * np.sin(1.41 * ph)) * np.exp(-t / 0.09)
+        return fade(tone, 0.001, 0.02)
+    def shot(f, punch):
+        return place(0.5, (0, pan(crack(0.012, 2500, 12000, 0.0025), 0), 0.6), (0, pan(zing(f), 0), 0.55),
+                     (0, highpass(kick(320, 150, 0.2, 0.012, 0.04, 4.0), 200), punch))
+    s["garbage_out_small"] = hall(place(0.6, (0, shot(1320, 0.4), 1.0), (0, whoosh(0.16, 900, 8000, -0.2, 0.4), 0.5)), 0.18, 1.0)
+    s["garbage_out_medium"] = hall(place(0.9, (0, shot(1175, 0.6), 1.0), (0, whoosh(0.24, 700, 9000, -0.3, 0.6), 0.6),
+                                         (0.03, glass(hz("G6"), 0.8, 0.2, 1.6), 0.3), (0.04, glass(hz("D7"), 0.8, 0.16, 1.4), 0.25)), 0.22, 1.3)
+    s["garbage_out_large"] = hall(place(1.4, (0, shot(1050, 0.8), 1.0), (0, whoosh(0.34, 500, 10000, -0.4, 0.7), 0.7),
+                                        (0, highpass(impact(0.8, 1.4, 330), 150), 0.5),
+                                        (0.05, shimmer(["G6", "B6", "D7", "G7"], 0.028), 0.35)), 0.3, 1.9)
+
+    # A big spike (the attack in one burst passes 10, 18 or 26 lines): thunder, as TETR.IO plays it.
+    # Lightning cracks (more strokes for a bigger strike), a boom, and a long roll that swells and
+    # fades as it rolls on; the biggest has a low brass swell under it. The roll is driven a little,
+    # so its overtones carry it on small speakers.
+    def strike(seconds, tau):
+        return highpass(wide_noise(seconds), 1200) * np.exp(-times(seconds) / tau)[:, None]
+
+    def thunder(size, seconds):
+        t = times(seconds)
+        swells = np.zeros(len(t))
+        for _ in range(4 + 2 * size):
+            centre = rng.uniform(0.05, seconds * 0.75)
+            width = rng.uniform(0.12, 0.45)
+            swells += rng.uniform(0.4, 1.0) * np.exp(-((t - centre) / width) ** 2) * np.exp(-centre / (seconds * 0.45))
+        shape = np.minimum(1, t / 0.03) * swells / swells.max()
+        roll = bandpass(wide_noise(seconds), 60, 900) * shape[:, None]
+        roll = np.tanh(2.0 * roll / (np.abs(roll).max() + 1e-9))
+        low = lowpass(wide_noise(seconds), 150) * (np.minimum(1, t / 0.03) * np.exp(-t / (0.6 + 0.3 * size)))[:, None]
+        parts = [(0, roll, 0.8), (0, low / (np.abs(low).max() + 1e-9), 0.6), (0, strike(0.25, 0.035), 0.9),
+                 (0, kick(95, 32, 1.2, 0.08, 0.35 + 0.1 * size, 2.5), 0.9)]
+        for k in range(size):
+            parts.append((0.07 + 0.06 * k + rng.uniform(0, 0.03), strike(0.2, 0.025), 0.6))
+        return place(seconds, *parts)
+
+    def braam(names, seconds):
+        t = times(seconds)
+        body = sum(supersaw(hz(n), seconds, 7, 12) for n in names) / len(names)
+        body = sweep(body, 250, 1600, "low", tau=0.25)
+        shape = np.minimum(1, t / 0.12) * np.where(t < 0.8, 1.0, np.exp(-(t - 0.8) / 0.9))
+        body = scale_env(body, shape)
+        return fade(np.tanh(2.5 * body / (np.abs(body).max() + 1e-9)), 0.002, 0.1)
+
+    s["thunder_1"] = hall(thunder(1, 2.4), 0.35, 3.0)
+    s["thunder_2"] = hall(thunder(2, 3.2), 0.4, 3.5)
+    s["thunder_3"] = hall(place(4.5, (0, thunder(3, 4.0), 1.0), (0.05, braam(["D2", "A2", "D3", "F3"], 3.0), 0.5)), 0.42, 4.0)
     return s
 
 
@@ -534,7 +661,7 @@ def main():
         else:
             write_ogg(OUT / f"{name}.ogg", pan(y))
         sounds[name] = y
-        print(f"{name:12} {'wav' if name in MONO else 'ogg'} {len(y) / SR:5.2f} s  {lufs(y):6.1f} LUFS (target {TARGETS[name]:6.1f})  "
+        print(f"{name:18} {'wav' if name in MONO else 'ogg'} {len(y) / SR:5.2f} s  {lufs(y):6.1f} LUFS (target {TARGETS[name]:6.1f})  "
               f"peak {20 * np.log10(np.max(np.abs(y))):5.1f} dBFS")
     if "--preview" in sys.argv:
         gap = np.zeros((int(SR * 0.4), 2))

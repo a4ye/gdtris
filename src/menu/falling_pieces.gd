@@ -2,7 +2,7 @@ extends Node2D
 # Faint pieces drifting down behind the menus, drawn with the game's own blocks
 
 const COUNT = 18
-const TILES = preload("res://assets/tiles.png")
+const BlockSkin = preload("res://src/base/block_skin.gd")
 
 var pieces = []
 var rng = RandomNumberGenerator.new()
@@ -42,9 +42,19 @@ func _process(delta):
 func _draw():
 	for p in pieces:
 		var shape = Piece.PIECE_ARRAYS[p["kind"]][p["rotation"]]
-		var source = Rect2(16 * p["kind"], 0, 16, 16)
+		var color = MainGame.COLORS[p["kind"]]
 		for row in shape.size():
 			for col in shape[row].size():
-				if shape[row][col] == 1:
-					var at = Vector2(p["x"] + col * p["cell"], p["y"] + row * p["cell"])
-					draw_texture_rect_region(TILES, Rect2(at, Vector2(p["cell"], p["cell"])), source, Color(1, 1, 1, p["alpha"]))
+				if shape[row][col] != 1:
+					continue
+				var joins = 0
+				if row > 0 and shape[row - 1][col] == 1:
+					joins |= Tile.UP
+				if row < shape.size() - 1 and shape[row + 1][col] == 1:
+					joins |= Tile.DOWN
+				if col > 0 and shape[row][col - 1] == 1:
+					joins |= Tile.LEFT
+				if col < shape[row].size() - 1 and shape[row][col + 1] == 1:
+					joins |= Tile.RIGHT
+				var at = Vector2(p["x"] + col * p["cell"], p["y"] + row * p["cell"])
+				BlockSkin.draw(self, Rect2(at, Vector2(p["cell"], p["cell"])), color, joins, p["alpha"])

@@ -1,5 +1,5 @@
 extends Node
-# The first screen: the logo, then PLAY and SETTINGS
+# The first screen: the logo, then PLAY, SURVIVAL, VS BOT and SETTINGS
 
 const UI = preload("res://src/menu/ui.gd")
 const BUTTON_WIDTH = 440
@@ -23,12 +23,18 @@ func _ready():
 	root.add_child(logo)
 
 	var buttons = VBoxContainer.new()
-	buttons.add_theme_constant_override("separation", 20)
-	buttons.position = Vector2((UI.DESIGN_SIZE.x - BUTTON_WIDTH) / 2, 560)
+	buttons.add_theme_constant_override("separation", 18)
+	buttons.position = Vector2((UI.DESIGN_SIZE.x - BUTTON_WIDTH) / 2, 520)
 	buttons.size = Vector2(BUTTON_WIDTH, 0)
 	root.add_child(buttons)
 	var play = menu_button("PLAY", buttons)
-	play.pressed.connect(func(): get_tree().change_scene_to_file("res://game.tscn"))
+	play.pressed.connect(func(): start("play"))
+	var survival = menu_button("SURVIVAL", buttons)
+	survival.pressed.connect(func(): start("survival"))
+	var versus = menu_button("VS BOT", buttons)
+	versus.pressed.connect(func():
+		UI.play(self, "rotate")
+		get_tree().change_scene_to_file("res://vs_setup.tscn"))
 	var settings = menu_button("SETTINGS", buttons)
 	settings.pressed.connect(func():
 		UI.play(self, "rotate")
@@ -46,10 +52,16 @@ func _ready():
 	set_deferred("sounds_on", true)
 
 
+# "play" or "survival" (see MainGame.mode)
+func start(mode: String):
+	MainGame.mode = mode
+	get_tree().change_scene_to_file("res://game.tscn")
+
+
 func menu_button(text: String, parent: Control) -> Button:
 	var b = Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(BUTTON_WIDTH, 86)
+	b.custom_minimum_size = Vector2(BUTTON_WIDTH, 80)
 	b.add_theme_font_size_override("font_size", 36)
 	b.add_theme_font_override("font", UI.spaced_font(8))
 	b.mouse_entered.connect(b.grab_focus)

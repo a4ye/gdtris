@@ -1,7 +1,9 @@
 extends Node
-# Settings: handling, volume and the keys, on one glass panel. Every change is saved at once.
+# Settings: handling, volume, survival and the keys, on one glass panel. Every change is saved at once.
 
 const UI = preload("res://src/menu/ui.gd")
+const Survival = preload("res://src/base/survival.gd")
+const SURVIVAL_KEYS = ["interval", "size", "ramp", "random"]
 const FRAME_MS = 1000.0 / 60.0
 const SDF_INSTANT = 41  # the far right of the SDF slider; saved as 0, which the game takes as instant
 
@@ -16,6 +18,7 @@ var sliders = {}  # setting -> HSlider
 var values = {}   # setting -> the Label showing its value
 var keycaps = {}  # action -> Button
 var listening = ""  # the action waiting for its new key, or ""
+var survival_summary: Label
 var sounds_on = false
 var last_tick = 0
 
@@ -29,8 +32,8 @@ func _ready():
 
 	var panel = PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", UI.box(UI.GLASS, Color(UI.ACCENT, 0.28), 2, 22, 40))
-	panel.position = Vector2(200, 0)
-	panel.size = Vector2(1520, 0)
+	panel.position = Vector2(80, 0)
+	panel.size = Vector2(1760, 0)
 	root.add_child(panel)
 
 	var page = VBoxContainer.new()
@@ -47,12 +50,12 @@ func _ready():
 	page.add_child(rule())
 
 	var columns = HBoxContainer.new()
-	columns.add_theme_constant_override("separation", 90)
+	columns.add_theme_constant_override("separation", 70)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page.add_child(columns)
 
 	var left = VBoxContainer.new()
-	left.custom_minimum_size.x = 620
+	left.custom_minimum_size.x = 500
 	left.add_theme_constant_override("separation", 10)
 	columns.add_child(left)
 	left.add_child(UI.heading("HANDLING"))
@@ -64,6 +67,19 @@ func _ready():
 	left.add_child(gap)
 	left.add_child(UI.heading("AUDIO"))
 	add_slider(left, "volume", "VOLUME", 0, 100, "")
+
+	var middle = VBoxContainer.new()
+	middle.custom_minimum_size.x = 500
+	middle.add_theme_constant_override("separation", 10)
+	columns.add_child(middle)
+	middle.add_child(UI.heading("SURVIVAL"))
+	add_slider(middle, "interval", "ATTACK EVERY", 10, 100, "The average time between attacks at the start of a run.")
+	add_slider(middle, "size", "ATTACK SIZE", 1, 8, "The average lines in an attack at the start of a run.")
+	add_slider(middle, "ramp", "RAMP", 0, 300, "How fast it gets harder: every minute the attacks come more often and get bigger.")
+	add_slider(middle, "random", "RANDOMNESS", 0, 100, "How much the size and timing of attacks vary, and how often a big spike comes.")
+	survival_summary = UI.label("", 19, UI.GOLD)
+	survival_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	middle.add_child(survival_summary)
 
 	var right = VBoxContainer.new()
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -177,7 +193,9 @@ func add_slider(parent: Control, key: String, title: String, low: int, high: int
 
 
 func section_of(key: String) -> String:
-	return "audio" if key == "volume" else "handling"
+	if key == "volume":
+		return "audio"
+	return "survival" if key in SURVIVAL_KEYS else "handling"
 
 
 func describe(key: String, value: int) -> String:
@@ -192,7 +210,25 @@ func describe(key: String, value: int) -> String:
 			return "∞" if value == 0 else "%d×" % value
 		"volume":
 			return "OFF" if value == 0 else "%d %%" % value
+		"interval":
+			return "%.1f s" % (value / 10.0)
+		"size":
+			return "1 line" if value == 1 else "%d lines" % value
+		"ramp":
+			return "OFF · steady" if value == 0 else "%d %%" % value
+		"random":
+			return "OFF · fixed" if value == 0 else "%d %%" % value
 	return str(value)
+
+
+# What the survival settings add up to, in lines a second, at a few points in a run
+func update_survival_summary():
+	var opponent = Survival.new()
+	opponent.configure(Survival.saved_options())
+	var parts = []
+	for minute in [0, 2, 4]:
+		parts.append("%.1f" % opponent.average_rate(minute * 60.0) + (" at the start" if minute == 0 else " at %d min" % minute))
+	survival_summary.text = "About " + ", ".join(parts) + " (lines a second)"
 
 
 func changed(value: float, key: String):
@@ -201,6 +237,8 @@ func changed(value: float, key: String):
 		saved = 0
 	GameConfig.change_setting(section_of(key), key, saved)
 	values[key].text = describe(key, saved)
+	if key in SURVIVAL_KEYS:
+		update_survival_summary()
 	# A real game sound for the volume, so its level can be heard; a tick for the rest
 	if sounds_on and Time.get_ticks_msec() - last_tick > (140 if key == "volume" else 50):
 		last_tick = Time.get_ticks_msec()
@@ -225,6 +263,7 @@ func refresh():
 		var saved = int(GameConfig.get_setting(section_of(key), key))
 		sliders[key].set_value_no_signal(SDF_INSTANT if key == "sdf" and saved == 0 else saved)
 		values[key].text = describe(key, saved)
+	update_survival_summary()
 	for action in keycaps:
 		var cap: Button = keycaps[action]
 		for state in ["normal", "hover", "focus", "pressed"]:

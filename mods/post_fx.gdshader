@@ -19,6 +19,11 @@ uniform float bloom = 0.0;
 uniform float lens = 0.0;
 uniform float time = 0.0;
 uniform float zoom = 1.0;
+// Danger (fx.gd): red creeps in from the edges of the screen, and as it grows the picture loses
+// some of its colour, so the red stands out. 0 is none, 1 is the next placement would kill.
+uniform float danger = 0.0;
+// Lightning (fx.gd), with the thunder of a big spike: the picture flashes a cold white. 0 is none.
+uniform float flash = 0.0;
 uniform vec2 tilt = vec2(0.0);
 
 // Clear shockwave, after TETR.IO: a packet of gentle radial ripples running outward from the
@@ -86,6 +91,19 @@ void fragment() {
 			glow += far * smoothstep(0.55, 1.0, max(far.r, max(far.g, far.b))) * 0.7;
 		}
 		col += glow / 20.4 * bloom * 0.55;
+	}
+
+	col += vec3(0.7, 0.78, 1.0) * flash * 0.25;
+
+	if (danger > 0.0) {
+		vec2 dv = (SCREEN_UV - 0.5) * vec2(aspect, 1.0);
+		float edge = smoothstep(0.3, 1.0, length(dv));
+		float grey = dot(col, vec3(0.299, 0.587, 0.114));
+		col = mix(col, vec3(grey), 0.35 * smoothstep(0.4, 1.0, danger));
+		// Squared, so being near the top is a hint and the next placement killing is loud
+		float d2 = danger * danger;
+		col = mix(col, col * vec3(1.0, 0.5, 0.5), edge * d2 * 0.7);
+		col += vec3(0.6, 0.02, 0.04) * edge * edge * d2;
 	}
 
 	if (lens > 0.0) {

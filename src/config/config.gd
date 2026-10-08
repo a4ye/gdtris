@@ -3,10 +3,13 @@ class_name GameConfig
 static var config = ConfigFile.new()
 
 # Every setting and its default. Handling as in TETR.IO: DAS 10 frames, ARR 2 frames (at 60 fps),
-# SDF 6x (0 means instant). Volume is a percentage of full.
+# SDF 6x (0 means instant). Volume is a percentage of full. Survival: see Survival.configure. Bot:
+# the versus bot's level (1-10, see Bot.LEVELS) and speed.
 const DEFAULTS = {
 	"handling": {"das": 167, "arr": 33, "sdf": 6},
 	"audio": {"volume": 80},
+	"survival": {"interval": 50, "size": 1, "ramp": 100, "random": 50},
+	"bot": {"level": 6, "pps": 15, "unlimited": false},  # pps in tenths; unlimited: lives in versus
 	"controls": {
 		"left": KEY_LEFT, "right": KEY_RIGHT, "soft_drop": KEY_DOWN, "hard_drop": KEY_SPACE,
 		"rotate_cw": KEY_C, "rotate_ccw": KEY_Z, "rotate_180": KEY_X, "hold": KEY_SHIFT, "restart": KEY_R,
